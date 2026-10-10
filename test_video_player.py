@@ -1,4 +1,5 @@
-# test_video_player.py
+# Tests for the Cinefy video player. VLC is replaced by a stand-in (see conftest.py);
+# Tk needs a display, so on a server run them with: xvfb-run python -m pytest
 import pytest
 from unittest.mock import MagicMock
 from Functions import VideoPlayer
@@ -13,7 +14,8 @@ def mock_video_player():
     player.player = MagicMock()
     player.vlc_instance = MagicMock()
     player.media = MagicMock()
-    return player
+    yield player
+    master.destroy()
 
 
 def test_load(mock_video_player):
@@ -37,10 +39,14 @@ def test_set_speed(mock_video_player):
 
 
 def test_play(mock_video_player):
-    mock_video_player.update_seeker = MagicMock()
     mock_video_player.play()
     mock_video_player.player.play.assert_called_once()
-    mock_video_player.update_seeker.assert_called_once()
+
+
+def test_load_does_nothing_when_the_dialog_is_cancelled(mock_video_player):
+    with patch('tkinter.filedialog.askopenfilename', return_value=''):
+        mock_video_player.load()
+    mock_video_player.vlc_instance.media_new.assert_not_called()
 
 
 def test_pause(mock_video_player):
@@ -72,11 +78,18 @@ def test_add_to_playlist(mock_video_player):
         assert mock_video_player.playlist[-1] == 'test.mp4'
 
 
-def test_delete_from_playlist(mock_video_player):
+def test_remove_from_playlist(mock_video_player):
     mock_video_player.playlist = ['test1.mp4', 'test2.mp4', 'test3.mp4']
-    with patch('builtins.input', return_value='2'):
-        mock_video_player.delete_from_playlist()
-        assert mock_video_player.playlist == ['test1.mp4', 'test3.mp4']
+    assert mock_video_player.remove_from_playlist(1) == 'test2.mp4'
+    assert mock_video_player.playlist == ['test1.mp4', 'test3.mp4']
+    assert mock_video_player.remove_from_playlist(5) is None
+
+
+def test_removing_an_earlier_video_keeps_the_current_one_selected(mock_video_player):
+    mock_video_player.playlist = ['a.mp4', 'b.mp4', 'c.mp4']
+    mock_video_player.current_index = 2
+    mock_video_player.remove_from_playlist(0)
+    assert mock_video_player.playlist[mock_video_player.current_index] == 'c.mp4'
 
 
 def test_shuffle_playlist(mock_video_player):
@@ -113,6 +126,22 @@ def test_update_seek_slider(mock_video_player):
     mock_video_player.update_seek_slider()
     mock_video_player.seek_var.set.assert_called_once_with(50)
     mock_video_player.master.after.assert_called_once_with(1000, mock_video_player.update_seek_slider)
+
+
+def test_seek_slider_stays_at_zero_before_a_video_is_loaded(mock_video_player):
+    mock_video_player.player.get_length.return_value = -1
+    mock_video_player.player.get_time.return_value = -1
+    assert mock_video_player.seek_percentage() == 0
+
+
+def test_seek_video_accepts_the_slider_text_value(mock_video_player):
+    mock_video_player.player.get_length.return_value = 8000
+    mock_video_player.seek_video('25')
+    mock_video_player.player.set_time.assert_called_once_with(2000)
+
+
+def test_convert_to_seconds():
+    assert VideoPlayer.convert_to_seconds(2500) == 2.5
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ class Playlist:
         def remove_selected():
             selected_index = playlist_listbox.curselection()
             if selected_index:
-                removed_video = self.playlist.pop(selected_index[0])
+                self.remove_from_playlist(selected_index[0])
                 playlist_listbox.delete(selected_index)
 
         remove_button = tk.Button(playlist_window, text="Remove Selected Video", command=remove_selected)
@@ -56,6 +56,15 @@ class Playlist:
         if file_path:
             self.playlist.append(file_path)
 
+    def remove_from_playlist(self, index):
+        """Remove the video at index (0-based) and keep current_index pointing at a valid video."""
+        if not 0 <= index < len(self.playlist):
+            return None
+        removed = self.playlist.pop(index)
+        if index < self.current_index or self.current_index >= len(self.playlist):
+            self.current_index = max(0, self.current_index - 1)
+        return removed
+
     def shuffle_playlist(self):
         if self.playlist:
             random.shuffle(self.playlist)
@@ -71,10 +80,13 @@ class Playlist:
             media = self.vlc_instance.media_new(self.playlist[self.current_index])
             self.set_aspect_ratio()
             self.set_media_and_play(media)
-            if self.is_repeating:
+            if self.is_repeating and not getattr(self, "_repeat_attached", False):
+                # Attach once; attaching on every play would call repeat_video several times.
                 self.player.event_manager().event_attach(vlc.EventType.MediaPlayerEndReached, self.repeat_video)
+                self._repeat_attached = True
 
     def repeat_video(self, event):
-        if self.is_repeating:
+        if self.is_repeating and self.playlist:
             self.current_index = (self.current_index + 1) % len(self.playlist)
-            self.play_current_video()
+            # VLC calls this from its own thread; hand the work to the Tk main loop.
+            self.master.after(0, self.play_current_video)
