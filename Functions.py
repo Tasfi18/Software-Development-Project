@@ -1,4 +1,5 @@
 from tkinter import filedialog
+
 from gui import VideoPlayer
 import Playlist
 
@@ -8,13 +9,15 @@ class VideoPlayer(VideoPlayer, Playlist.Playlist):
         super().__init__(root)
 
     def load(self):
-        filepath = filedialog.askopenfilename(filetypes=[("Video files", ".mp4;.avi;*.mkv")])
+        filepath = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
+        if not filepath:  # the dialog was cancelled
+            return
         self.media = self.vlc_instance.media_new(filepath)
         self.player.set_media(self.media)
 
     def play(self):
+        # The seek slider is already refreshed every second (see update_seek_slider).
         self.player.play()
-        self.update_seeker()
 
     def pause(self):
         self.player.pause()
@@ -28,22 +31,30 @@ class VideoPlayer(VideoPlayer, Playlist.Playlist):
     def set_speed(self, speed):
         self.player.set_rate(float(speed))
 
-    MILLISECONDS_TO_SECONDS = 1000
+    MILLISECONDS_PER_SECOND = 1000
+    SLIDER_REFRESH_MS = 1000
 
-    def convert_to_seconds(milliseconds, MILLISECONDS_TO_SECONDS=None):
-        return milliseconds / MILLISECONDS_TO_SECONDS
+    @staticmethod
+    def convert_to_seconds(milliseconds):
+        return milliseconds / VideoPlayer.MILLISECONDS_PER_SECOND
 
-    def update_seek_slider(self, MILLISECONDS_TO_SECONDS=None):
-        video_length_seconds = self.convert_to_seconds(self.player.get_length())
-        video_time_seconds = self.convert_to_seconds(self.player.get_time())
-        seek_position_percentage = (video_time_seconds / video_length_seconds) * 100
-        self.seek_var.set(seek_position_percentage)
-        self.master.after(MILLISECONDS_TO_SECONDS, self.update_seek_slider)
+    def seek_percentage(self):
+        """How far through the video we are, from 0 to 100. 0 when nothing is loaded."""
+        length = self.player.get_length()  # -1 or 0 when no media is loaded
+        position = self.player.get_time()
+        if not length or length <= 0 or position is None or position < 0:
+            return 0
+        return min(100, (position / length) * 100)
+
+    def update_seek_slider(self):
+        self.seek_var.set(self.seek_percentage())
+        self.master.after(self.SLIDER_REFRESH_MS, self.update_seek_slider)
 
     def calculate_seek_time(self, percentage):
-
         video_length_ms = self.player.get_length()  # Video length in milliseconds
-        seek_time_ms = int((percentage / 100) * video_length_ms)
+        if not video_length_ms or video_length_ms <= 0:
+            return 0
+        seek_time_ms = int((float(percentage) / 100) * video_length_ms)
         return seek_time_ms
 
     def seek_video(self, percentage):
